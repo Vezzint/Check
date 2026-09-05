@@ -5,7 +5,7 @@ from telebot import types
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-BOT_TOKEN = "8915046634:AAHf96zZTEQ9fUL368Rbfb-MZnuO8LS3aLg"
+BOT_TOKEN = "8915046634:AAHo7TUJdJm-b5wD7GredetvIHetaavpn_M"
 bot = telebot.TeleBot(BOT_TOKEN, threaded=False)
 app = FastAPI()
 
