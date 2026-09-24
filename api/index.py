@@ -2,64 +2,48 @@ import re
 import requests
 import telebot
 from telebot import types
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, BackgroundTasks
 from fastapi.responses import JSONResponse
 
-BOT_TOKEN = "8915046634:AAHo7TUJdJm-b5wD7GredetvIHetaavpn_M"
+BOT_TOKEN = "8915046634:AAHf96zZTEQ9fUL368Rbfb-MZnuO8LS3aLg"
+WEBHOOK_URL = "https://checkk-zeta.vercel.app/"
+
 bot = telebot.TeleBot(BOT_TOKEN, threaded=False)
 app = FastAPI()
 
-HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+HEADERS = {"User-Agent": "Mozilla/5.0"}
 
-# 1. Получение курсов ЦБ РФ
 def get_cbr_rates():
     url = "https://www.cbr-xml-daily.ru/daily_json.js"
     try:
-        res = requests.get(url, headers=HEADERS, timeout=5).json()
+        res = requests.get(url, headers=HEADERS, timeout=4).json()
         val = res["Valute"]
         return {
             "USD": {"val": float(val["USD"]["Value"]), "prev": float(val["USD"]["Previous"])},
             "EUR": {"val": float(val["EUR"]["Value"]), "prev": float(val["EUR"]["Previous"])},
             "CNY": {"val": float(val["CNY"]["Value"]), "prev": float(val["CNY"]["Previous"])},
         }
-    except Exception as e:
-        print(f"CBR error: {e}")
+    except Exception:
+        return None
+
+def get_crypto_rates():
+    url = "https://api.coingecko.com/api/v3/simple/price"
+    params = {"ids": "the-open-network,bitcoin,tether", "vs_currencies": "rub,usd"}
+    try:
+        res = requests.get(url, params=params, headers=HEADERS, timeout=4).json()
         return {
-            "USD": {"val": 90.0, "prev": 90.0},
-            "EUR": {"val": 98.0, "prev": 98.0},
-            "CNY": {"val": 12.5, "prev": 12.5},
+            "TON": {"rub": float(res["the-open-network"]["rub"]), "usd": float(res["the-open-network"]["usd"])},
+            "BTC": {"rub": float(res["bitcoin"]["rub"]), "usd": float(res["bitcoin"]["usd"])},
+            "USDT": {"rub": float(res["tether"]["rub"]), "usd": float(res["tether"]["usd"])},
         }
-
-# 2. Курсы криптовалют (Binance + OKX)
-def get_crypto_rates(usd_rub=90.0):
-    btc_usd = 65000.0
-    ton_usd = 5.0
-    usdt_usd = 1.0
-
-    try:
-        btc_res = requests.get("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT", headers=HEADERS, timeout=4).json()
-        btc_usd = float(btc_res["price"])
-    except Exception as e:
-        print(f"BTC error: {e}")
-
-    try:
-        ton_res = requests.get("https://www.okx.com/api/v5/market/ticker?instId=TON-USDT", headers=HEADERS, timeout=4).json()
-        ton_usd = float(ton_res["data"][0]["last"])
-    except Exception as e:
-        print(f"TON error: {e}")
-
-    return {
-        "TON": {"usd": ton_usd, "rub": ton_usd * usd_rub},
-        "BTC": {"usd": btc_usd, "rub": btc_usd * usd_rub},
-        "USDT": {"usd": usdt_usd, "rub": usdt_usd * usd_rub},
-    }
+    except Exception:
+        return None
 
 def format_trend(current, previous):
     diff = current - previous
     arrow = "📈 +" if diff >= 0 else "📉 "
     return f"({arrow}{diff:.2f} ₽)"
 
-# Главная клавиатура
 def main_keyboard():
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
     keyboard.add(types.KeyboardButton("🇺🇸 USD"), types.KeyboardButton("🇪🇺 EUR"), types.KeyboardButton("🇨🇳 CNY"))
@@ -67,13 +51,11 @@ def main_keyboard():
     keyboard.add(types.KeyboardButton("⭐ Telegram Stars"), types.KeyboardButton("📊 Все курсы"))
     return keyboard
 
-# Инлайн-кнопка обновления
 def refresh_markup(target):
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("🔄 Обновить", callback_data=f"refresh_{target}"))
     return markup
 
-# Текст отдельного курса
 def get_single_rate_text(target, cbr, crypto):
     if target == "usd":
         diff = format_trend(cbr['USD']['val'], cbr['USD']['prev'])
@@ -93,13 +75,13 @@ def get_single_rate_text(target, cbr, crypto):
     elif target == "stars":
         star_rub = 0.02 * cbr['USD']['val']
         ton_price_usd = crypto['TON']['usd']
-        ton_for_100 = (100 * 0.02) / ton_price_usd if ton_price_usd > 0 else 0
+        ton_for_100_stars = (100 * 0.02) / ton_price_usd if ton_price_usd > 0 else 0
         return (
             f"⭐ **Telegram Stars:**\n\n"
             f"• 1 Star = `$0.02` (`{star_rub:.2f}` ₽)\n"
-            f"• 100 Stars = `$2.00` (`{star_rub * 100:,.2f}` ₽ ≈ `{ton_for_100:.2f}` TON)\n"
-            f"• 500 Stars = `$10.00` (`{star_rub * 500:,.2f}` ₽ ≈ `{ton_for_100 * 5:.2f}` TON)\n"
-            f"• 1 000 Stars = `$20.00` (`{star_rub * 1000:,.2f}` ₽ ≈ `{ton_for_100 * 10:.2f}` TON)"
+            f"• 100 Stars = `$2.00` (`{star_rub * 100:,.2f}` ₽ ≈ `{ton_for_100_stars:.2f}` TON)\n"
+            f"• 500 Stars = `$10.00` (`{star_rub * 500:,.2f}` ₽ ≈ `{ton_for_100_stars * 5:.2f}` TON)\n"
+            f"• 1 000 Stars = `$20.00` (`{star_rub * 1000:,.2f}` ₽ ≈ `{ton_for_100_stars * 10:.2f}` TON)"
         ).replace(",", " ")
     elif target == "all":
         star_rub = 0.02 * cbr['USD']['val']
@@ -116,7 +98,6 @@ def get_single_rate_text(target, cbr, crypto):
         ).replace(",", " ")
     return "Неизвестный тип"
 
-# Распознавание команд кнопок меню
 def detect_button(text):
     t = text.lower().strip()
     if re.search(r"usd|доллар", t) and not re.search(r"\d", t):
@@ -137,7 +118,6 @@ def detect_button(text):
         return "all"
     return None
 
-# Распознавание сумм
 def parse_user_input(text):
     text = text.strip().lower().replace(",", ".")
     pattern = r"^([\d.\s]+)\s*(\$|usd|доллар\w*|€|eur|евро|¥|cny|юан\w*|ton|тон|btc|биткоин\w*|usdt|тезер|юсдт|⭐|star\w*|звезд\w*|₽|rub|руб\w*)?$"
@@ -176,9 +156,9 @@ def parse_user_input(text):
 def start_handler(message):
     text = (
         "👋 **Бот-конвертер валют, крипты и Telegram Stars**\n\n"
-        "• Нажимайте кнопки внизу для просмотра курсов.\n"
+        "• Нажимайте кнопки внизу для моментального курса.\n"
         "• **Суммы:** `500 ton`, `200 usdt`, `1000$`, `540 stars`\n"
-        "• **Из рублей:** `50000 руб`, `100000₽` :)"
+        "• **Из рублей:** `50000 руб`, `100000₽`"
     )
     bot.send_message(message.chat.id, text, reply_markup=main_keyboard(), parse_mode="Markdown")
 
@@ -186,7 +166,10 @@ def start_handler(message):
 def callback_refresh(call):
     target = call.data.replace("refresh_", "")
     cbr = get_cbr_rates()
-    crypto = get_crypto_rates(cbr["USD"]["val"])
+    crypto = get_crypto_rates()
+    if not cbr or not crypto:
+        bot.answer_callback_query(call.id, "⚠️ Ошибка обновления данных")
+        return
 
     text = get_single_rate_text(target, cbr, crypto)
     try:
@@ -199,20 +182,25 @@ def callback_refresh(call):
 def message_handler(message):
     txt = message.text.strip()
 
-    # 1. Проверяем нажатие на кнопку меню
     btn_target = detect_button(txt)
     if btn_target:
         cbr = get_cbr_rates()
-        crypto = get_crypto_rates(cbr["USD"]["val"])
+        crypto = get_crypto_rates()
+        if not cbr or not crypto:
+            bot.send_message(message.chat.id, "⚠️ Сервер курсов временно недоступен.")
+            return
+
         text = get_single_rate_text(btn_target, cbr, crypto)
         bot.send_message(message.chat.id, text, reply_markup=refresh_markup(btn_target), parse_mode="Markdown")
         return
 
-    # 2. Обрабатываем конвертацию сумм
     amount, cur = parse_user_input(txt)
     if amount is not None:
         cbr = get_cbr_rates()
-        crypto = get_crypto_rates(cbr["USD"]["val"])
+        crypto = get_crypto_rates()
+        if not cbr or not crypto:
+            bot.send_message(message.chat.id, "⚠️ Не удалось получить курсы.")
+            return
 
         star_price_usd = 0.02
         star_price_rub = star_price_usd * cbr["USD"]["val"]
@@ -266,14 +254,39 @@ def message_handler(message):
             parse_mode="Markdown"
         )
 
-# Serverless webhook эндпоинт
+def process_telegram_update(json_data: dict):
+    try:
+        update = telebot.types.Update.de_json(json_data)
+        bot.process_new_updates([update])
+    except Exception as e:
+        print(f"Update error: {e}")
+
+@app.on_event("startup")
+def on_startup():
+    try:
+        current_info = bot.get_webhook_info()
+        if current_info.url != WEBHOOK_URL:
+            bot.remove_webhook()
+            bot.set_webhook(url=WEBHOOK_URL)
+    except Exception as e:
+        print(f"Startup webhook error: {e}")
+
 @app.post("/")
-async def webhook_handler(request: Request):
-    json_data = await request.json()
-    update = telebot.types.Update.de_json(json_data)
-    bot.process_new_updates([update])
+async def webhook_handler(request: Request, background_tasks: BackgroundTasks):
+    try:
+        json_data = await request.json()
+        background_tasks.add_task(process_telegram_update, json_data)
+    except Exception as e:
+        print(f"Payload error: {e}")
     return JSONResponse(status_code=200, content={"status": "ok"})
 
 @app.get("/")
 def root():
+    try:
+        current_info = bot.get_webhook_info()
+        if current_info.url != WEBHOOK_URL:
+            bot.remove_webhook()
+            bot.set_webhook(url=WEBHOOK_URL)
+    except Exception:
+        pass
     return {"status": "Bot is alive and running 24/7"}
